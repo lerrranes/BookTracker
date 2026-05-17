@@ -2,163 +2,116 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import json
 import os
+import requests
 
-# Имя файла для хранения данных
-DATA_FILE = "books_data.json"
+# Константы
+DATA_FILE = "history.json"
+# Чтобы получить бесплатный ключ, нужно зайти на https://www.exchangerate-api.com/
+API_KEY = "ВАШ_КЛЮЧ_API" 
 
-# Список для хранения данных о книгах в памяти
-books = []
+class CurrencyConverter:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Конвертер валют")
+        self.root.geometry("500x550")
+        
+        self.history = []
+        self.load_history()
 
-# --- ФУНКЦИИ ЛОГИКИ ---
+        # --- Интерфейс ---
+        # Поле ввода суммы
+        tk.Label(root, text="Сумма:").pack(pady=5)
+        self.entry_amount = tk.Entry(root)
+        self.entry_amount.pack(pady=5)
 
-def save_data():
-    """Функция сохранения данных в JSON"""
-    try:
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(books, f, ensure_ascii=False, indent=2)
-        messagebox.showinfo("Успех", "Данные сохранены в файл!")
-    except Exception as e:
-        messagebox.showerror("Ошибка", f"Не удалось сохранить данные: \n{e}")
+        # Выбор валют
+        self.currencies = ["USD", "EUR", "RUB", "GBP", "BYN", "KZT"]
+        
+        tk.Label(root, text="Из:").pack()
+        self.combo_from = ttk.Combobox(root, values=self.currencies, state="readonly")
+        self.combo_from.current(0)
+        self.combo_from.pack()
 
-def load_data():
-    """Функция загрузки данных из JSON"""
-    global books
-    if os.path.exists(DATA_FILE):
+        tk.Label(root, text="В:").pack()
+        self.combo_to = ttk.Combobox(root, values=self.currencies, state="readonly")
+        self.combo_to.current(2)
+        self.combo_to.pack()
+
+        # Кнопка конвертации
+        self.btn_calc = tk.Button(root, text="Конвертировать", command=self.convert, bg="#d1ffd1")
+        self.btn_calc.pack(pady=10)
+
+        # Результат
+        self.label_res = tk.Label(root, text="Результат: ", font=("Arial", 12, "bold"))
+        self.label_res.pack(pady=10)
+
+        # Таблица истории
+        tk.Label(root, text="История конвертаций:").pack()
+        self.tree = ttk.Treeview(root, columns=("date", "from", "to", "res"), show="headings", height=8)
+        self.tree.heading("date", text="Дата")
+        self.tree.heading("from", text="Из")
+        self.tree.heading("to", text="В")
+        self.tree.heading("res", text="Итог")
+        self.tree.column("date", width=100)
+        self.tree.pack(fill="x", padx=10)
+
+        self.update_table()
+
+    def convert(self):
+        amount = self.entry_amount.get()
+        base = self.combo_from.get()
+        target = self.combo_to.get()
+
+        if not amount:
+            messagebox.showwarning("Ошибка", "Введите сумму")
+            return
+
         try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                books = json.load(f)
-            update_table()
+            # Запрос к внешнему API
+            url = f"https://v6.exchangerate-api.com/v6/{API_KEY}/pair/{base}/{target}/{amount}"
+            response = requests.get(url)
+            
+            if response.status_code == 200:
+                data = response.json()
+result = round(data['conversion_result'], 2)
+                
+                res_text = f"{amount} {base} = {result} {target}"
+                self.label_res.config(text=f"Результат: {res_text}")
+
+                # Сохранение в историю
+                from datetime import datetime
+                record = {
+                    "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "from": f"{amount} {base}",
+                    "to": target,
+                    "res": str(result)
+                }
+                self.history.append(record)
+                self.save_history()
+                self.update_table()
+            else:
+                messagebox.showerror("Ошибка API", f"Статус код: {response.status_code}")
         except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось загрузить данные: \n{e}")
+            messagebox.showerror("Ошибка", f"Проверьте соединение: {e}")
 
-def add_book():
-    """Добавление новой книги"""
-    title = entry_title.get().strip()
-    author = entry_author.get().strip()
-    genre = entry_genre.get().strip()
-    pages = entry_pages.get().strip()
+    def save_history(self):
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(self.history, f, ensure_ascii=False, indent=2)
 
-    # Проверка на пустые поля
-    if not (title and author and genre and pages):
-        messagebox.showwarning("Внимание", "Все поля должны быть заполнены!")
-        return
+    def load_history(self):
+        if os.path.exists(DATA_FILE):
+            try:
+                with open(DATA_FILE, "r", encoding="utf-8") as f:
+                    self.history = json.load(f)
+            except: self.history = []
 
-    # Проверка, что количество страниц — это число
-    try:
-        pages_int = int(pages)
-    except ValueError:
-        messagebox.showwarning("Внимание", "Количество страниц должно быть целым числом!")
-        return
+    def update_table(self):
+        for i in self.tree.get_children():
+            self.tree.delete(i)
+        for r in self.history[::-1]: # Последние сверху
+            self.tree.insert("", 0, values=(r["date"], r["from"], r["to"], r["res"]))
 
-    # Создаем словарь с данными и добавляем в список
-    new_book = {
-        "title": title,
-        "author": author,
-        "genre": genre,
-        "pages": pages_int
-    }
-    books.append(new_book)
-    
-    save_data() # Сохраняем в JSON после добавления
-    update_table() # Обновляем таблицу на экране
-    clear_entries()
-
-def update_table(display_list=None):
-    """Обновление данных в таблице интерфейса"""
-    # Очищаем текущую таблицу
-    for item in tree.get_children():
-        tree.delete(item)
-    
-    # Если список для отображения не передан, берем основной список книг
-    list_to_show = display_list if display_list is not None else books
-    
-    for book in list_to_show:
-        tree.insert("", tk.END, values=(book["title"], book["author"], book["genre"], book["pages"]))
-
-def filter_by_genre():
-    """Фильтрация по жанру"""
-    query = entry_filter_genre.get().lower().strip()
-
-    filtered = [b for b in books if query in b["genre"].lower()]
-    update_table(filtered)
-
-def filter_by_pages():
-    """Фильтрация: книги > 200 страниц"""
-    filtered = [b for b in books if b["pages"] > 200]
-    update_table(filtered)
-
-def reset_filter():
-    """Сброс всех фильтров"""
-    update_table(books)
-
-def clear_entries():
-    """Очистка полей ввода"""
-    entry_title.delete(0, tk.END)
-    entry_author.delete(0, tk.END)
-    entry_genre.delete(0, tk.END)
-    entry_pages.delete(0, tk.END)
-
-# --- ИНТЕРФЕЙС (GUI) ---
-
-root = tk.Tk()
-root.title("Book Tracker")
-root.geometry("650x550")
-
-# Блок ввода данных
-frame_input = tk.LabelFrame(root, text="Добавить новую книгу", padx=10, pady=10)
-frame_input.pack(fill="x", padx=10, pady=5)
-
-tk.Label(frame_input, text="Название:").grid(row=0, column=0, sticky="w")
-entry_title = tk.Entry(frame_input)
-entry_title.grid(row=0, column=1, fill="x", expand=True, padx=5)
-
-tk.Label(frame_input, text="Автор:").grid(row=1, column=0, sticky="w")
-entry_author = tk.Entry(frame_input)
-entry_author.grid(row=1, column=1, fill="x", expand=True, padx=5)
-
-tk.Label(frame_input, text="Жанр:").grid(row=2, column=0, sticky="w")
-entry_genre = tk.Entry(frame_input)
-entry_genre.grid(row=2, column=1, fill="x", expand=True, padx=5)
-
-tk.Label(frame_input, text="Страниц:").grid(row=3, column=0, sticky="w")
-entry_pages = tk.Entry(frame_input)
-entry_pages.grid(row=3, column=1, fill="x", expand=True, padx=5)
-
-btn_add = tk.Button(frame_input, text="Добавить книгу", command=add_book, bg="#e1f5fe")
-btn_add.grid(row=4, column=0, columnspan=2, pady=10, sticky="we")
-
-# Блок фильтрации
-frame_filter = tk
-
-
-ame(root, text="Фильтры", padx=10, pady=10)
-frame_filter.pack(fill="x", padx=10, pady=5)
-
-tk.Label(frame_filter, text="Жанр:").grid(row=0, column=0)
-entry_filter_genre = tk.Entry(frame_filter)
-entry_filter_genre.grid(row=0, column=1, padx=5)
-
-btn_f_genre = tk.Button(frame_filter, text="Поиск по жанру", command=filter_by_genre)
-btn_f_genre.grid(row=0, column=2, padx=5)
-
-btn_f_pages = tk.Button(frame_filter, text="Больше 200 стр.", command=filter_by_pages)
-btn_f_pages.grid(row=0, column=3, padx=5)
-
-btn_reset = tk.Button(frame_filter, text="Сбросить", command=reset_filter)
-btn_reset.grid(row=0, column=4, padx=5)
-
-# Таблица вывода
-columns = ("title", "author", "genre", "pages")
-tree = ttk.Treeview(root, columns=columns, show="headings")
-tree.heading("title", text="Название")
-tree.heading("author", text="Автор")
-tree.heading("genre", text="Жанр")
-tree.heading("pages", text="Стр.")
-
-tree.column("pages", width=70, anchor="center")
-tree.pack(fill="both", expand=True, padx=10, pady=10)
-
-# Загружаем данные из файла при запуске
-load_data()
-
-root.mainloop().LabelFrame
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = CurrencyConverter(root)
+    root.mainloop() # Исправлено: просто mainloop без лишних вызовов
