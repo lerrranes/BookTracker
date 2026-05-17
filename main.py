@@ -161,4 +161,4 @@ tree.pack(fill="both", expand=True, padx=10, pady=10)
 # Загружаем данные из файла при запуске
 load_data()
 
-root.mainloop().LabelFr
+root.mainloop().LabelFrame
